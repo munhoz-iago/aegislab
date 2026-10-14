@@ -1,0 +1,19 @@
+{
+  "name": "aegislab",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.0.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @aegislab/api --filter @aegislab/web --filter @aegislab/demo-target dev",
+    "dev:worker": "pnpm --filter @aegislab/worker dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @aegislab/web test:e2e",
+    "db:generate": "pnpm --filter @aegislab/api db:generate",
+    "db:migrate": "pnpm --filter @aegislab/api db:migrate"
+  }
+}

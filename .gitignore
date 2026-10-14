@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+.env
+.env.*
+!.env.example
+dist/
+coverage/
+test-results/
+playwright-report/
+*.log
+*.tsbuildinfo
+.DS_Store
+reports/
+artifacts/
+*.har
+*.pcap
+*.sql.gz
