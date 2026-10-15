@@ -1,0 +1,145 @@
+name: aegislab
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aegislab
+      POSTGRES_USER: aegislab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in a local .env file}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [app_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegislab -d aegislab"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    command: ["sh", "-c", "pnpm --filter @aegislab/api db:migrate && pnpm --filter @aegislab/api start"]
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      AEGISLAB_IN_CONTAINER: "1"
+      PORT: "3001"
+      FRONTEND_ORIGIN: http://127.0.0.1:5173,http://localhost:5173
+      DATABASE_URL: postgresql://aegislab:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in a local .env file}@db:5432/aegislab
+    ports:
+      - "127.0.0.1:3001:3001"
+    networks: [app_net]
+    depends_on:
+      db:
+        condition: service_healthy
+    cpus: "1.0"
+    mem_limit: 512m
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=16m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: .
+    command: ["pnpm", "--filter", "@aegislab/web", "start"]
+    restart: unless-stopped
+    init: true
+    environment:
+      API_PROXY_TARGET: http://api:3001
+      PREVIEW_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:5173:5173"
+    networks: [app_net]
+    depends_on:
+      api:
+        condition: service_healthy
+    cpus: "0.50"
+    mem_limit: 384m
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=16m,uid=1000,gid=1000
+      - /app/apps/web/node_modules/.vite-temp:rw,nosuid,size=16m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  demo-target:
+    build: .
+    command: ["pnpm", "--filter", "@aegislab/demo-target", "start"]
+    restart: unless-stopped
+    init: true
+    environment:
+      DEMO_TARGET_HOST: 0.0.0.0
+      AEGISLAB_IN_CONTAINER: "1"
+    ports:
+      - "127.0.0.1:4100:4100"
+    networks: [probe_net, target_publish]
+    cpus: "0.25"
+    mem_limit: 128m
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=8m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  worker:
+    profiles: ["probe"]
+    build: .
+    command: ["node", "--max-old-space-size=96", "apps/worker/dist/cli.js"]
+    init: true
+    environment:
+      AEGISLAB_AUTHORIZATION_ACK: ${AEGISLAB_AUTHORIZATION_ACK:-}
+      AEGISLAB_AUTHORIZED_TARGET_ORIGIN: http://demo-target:4100
+      AEGISLAB_TARGET_PATH: /health
+      AEGISLAB_MAX_CALLS: "3"
+      AEGISLAB_REQUEST_TIMEOUT_MS: "1000"
+      AEGISLAB_TOTAL_DURATION_MS: "3000"
+      AEGISLAB_IN_CONTAINER: "1"
+    networks: [probe_net]
+    cpus: "0.50"
+    mem_limit: 128m
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=8m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    depends_on:
+      demo-target:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  app_net:
+  probe_net:
+    internal: true
+  target_publish:

@@ -1,4 +1,5 @@
 .git
+.github
 **/node_modules
 **/dist
 **/coverage
@@ -7,6 +8,19 @@
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
+!**/.env.example
 reports
 artifacts
 *.log
+**/reports
+**/artifacts
+**/*.log
+**/*.har
+**/*.pcap
+**/*.sql.gz
+**/*.tsbuildinfo
+.pnpm-store
+docs
+**/*.md
