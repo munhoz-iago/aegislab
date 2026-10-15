@@ -23,6 +23,9 @@ jobs:
           version: 11.0.9
           runtime: node@24
           cache: true
+          # The action's own install passes --no-runtime, which pnpm 11.0.9 rejects.
+          install: false
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm audit --prod --audit-level=high
       - name: Test with an isolated PostgreSQL database
@@ -51,6 +54,8 @@ jobs:
           version: 11.0.9
           runtime: node@24
           cache: true
+          install: false
+      - run: pnpm install --frozen-lockfile
       - name: Build and start the local stack
         shell: bash
         run: |
