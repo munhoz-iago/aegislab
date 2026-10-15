@@ -26,6 +26,7 @@ AegisLab is an educational, reproducible Application Security Engineering, Perfo
 - `apps/api`: Express API, authentication, and Drizzle/PostgreSQL schema.
 - `apps/web`: React/Vite/Tailwind dashboard.
 - `apps/demo-target`: safe synthetic local target.
-- `apps/worker`: bounded probe example, not a general scanner.
+- `apps/worker`: bounded CLI orchestration.
+- `packages/scanners`: local probe policy and adapter. It does not invoke third-party scanners.
 
 Read `README.md` and `docs/architecture.md` before extending the foundation.
