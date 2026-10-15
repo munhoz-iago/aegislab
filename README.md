@@ -13,7 +13,7 @@ Open source, local-first lab for application security, performance, and observab
 | Interface / UI | React + Vite + Tailwind; acesso e painel responsivo / sign-in and responsive dashboard |
 | Alvo local / Local target | Respostas fixas e sintéticas / fixed synthetic responses |
 | Worker e scanners / Worker and scanners | CLI e sonda GET separada, com escopo e recursos limitados / separate CLI and bounded GET probe |
-| Verificação / Verification | Vitest, Supertest e Playwright testados localmente; GitHub Actions configurado, sem execução remota confirmada / locally tested; workflow configured, no verified remote run |
+| Verificação / Verification | Vitest, Supertest e Playwright, localmente e no GitHub Actions (`main` aprovado em 15/10/2026; veja `docs/evidence.md`) / locally and in GitHub Actions (`main` passed on 2026-10-15; see `docs/evidence.md`) |
 
 Hashcat, OWASP ZAP, Semgrep, Gitleaks, Trivy, k6, Autocannon, OpenTelemetry, Prometheus e Grafana estão no roteiro, não no código executável desta fase. Nenhum resultado de scanner ou métrica de performance é simulado como se fosse medição real.
 
