@@ -1,0 +1,26 @@
+{
+  "name": "@aegislab/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "clean": "node ../../scripts/clean-package-dist.mjs",
+    "dev": "pnpm --filter @aegislab/scanners build && node --max-old-space-size=96 --import tsx src/cli.ts",
+    "build": "pnpm --filter @aegislab/scanners build && pnpm run clean && tsc -p tsconfig.build.json",
+    "start": "node --max-old-space-size=96 dist/cli.js",
+    "typecheck": "pnpm --filter @aegislab/scanners build && tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --filter @aegislab/scanners build && vitest run"
+  },
+  "dependencies": {
+    "@aegislab/scanners": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
