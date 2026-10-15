@@ -8,6 +8,25 @@ import { createLogger } from "../src/observability/log.js";
 
 const ORIGIN = "http://127.0.0.1:5173";
 const PASSWORD = "correct horse battery staple";
+// Well-formed but never issued.
+const SYNTHETIC_COOKIE = `${SESSION_COOKIE_NAME}=${"A".repeat(43)}`;
+const SENSITIVE_LOG_TEXT = /synthetic@example\.test|scrypt\$|127\.0\.0\.1:5432|administrator command|aegislab_session=|correct horse battery staple/;
+
+// Shapes produced by pg 8 / pg-pool 3 (directly or wrapped by Drizzle's DrizzleQueryError) when PostgreSQL is unreachable.
+const UNAVAILABLE_ERRORS: Array<[string, () => Error, string]> = [
+  [
+    "pool checkout timeout wrapped by Drizzle",
+    () => Object.assign(new Error("Failed query: select 1\nparams: synthetic@example.test"), { cause: new Error("timeout exceeded when trying to connect") }),
+    "connect_timeout",
+  ],
+  ["new client connection timeout", () => new Error("Connection terminated due to connection timeout", { cause: new Error("timeout expired") }), "connect_timeout"],
+  ["query read timeout", () => new Error("Query read timeout"), "query_timeout"],
+  ["lost connection", () => new Error("Connection terminated unexpectedly"), "connection_lost"],
+  ["reset connection", () => Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }), "connection_lost"],
+  ["refused connection", () => Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), { code: "ECONNREFUSED" }), "connect_failed"],
+  ["administrator shutdown (57P01)", () => Object.assign(new Error("terminating connection due to administrator command"), { code: "57P01" }), "server_unavailable"],
+  ["server starting up (57P03)", () => Object.assign(new Error("the database system is starting up"), { code: "57P03" }), "server_unavailable"],
+];
 
 class MemoryRepository implements AuthRepository {
   users = new Map<string, StoredUser>();
@@ -223,5 +242,64 @@ describe("AegisLab API", () => {
     expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/i);
     expect(lines.some((line) => JSON.parse(line).event === "internal_error" && JSON.parse(line).pgCode === "23503")).toBe(true);
     expect(lines.join("")).not.toMatch(/synthetic@example\.test|scrypt\$|aegislab_session=|correct horse battery staple/);
+  });
+
+  it.each(UNAVAILABLE_ERRORS)("returns 503 database_unavailable for a %s", async (_label, makeError, reason) => {
+    const repository = new MemoryRepository();
+    repository.findUserBySession = async () => {
+      throw makeError();
+    };
+    const lines: string[] = [];
+    const app = createApp({ repository, frontendOrigins: [ORIGIN], logger: createLogger((line) => lines.push(line)) });
+    const response = await request(app).get("/api/auth/me").set("Cookie", SYNTHETIC_COOKIE);
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ error: { code: "database_unavailable", message: "Database is temporarily unavailable" } });
+    expect(response.headers["retry-after"]).toBe("5");
+    const events = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toContainEqual(expect.objectContaining({ event: "database_unavailable", level: "error", reason }));
+    expect(events.some((entry) => entry.event === "internal_error")).toBe(false);
+    expect(lines.join("")).not.toMatch(SENSITIVE_LOG_TEXT);
+  });
+
+  it("returns 503 on every DB-backed route while PostgreSQL is unreachable", async () => {
+    const repository = new MemoryRepository();
+    const unreachable = async (): Promise<never> => {
+      throw Object.assign(new Error("Failed query: select\nparams: synthetic@example.test"), { cause: new Error("timeout exceeded when trying to connect") });
+    };
+    repository.findUserBySession = unreachable;
+    repository.findUserByEmail = unreachable;
+    repository.createUser = unreachable;
+    repository.deleteSession = unreachable;
+    const app = createApp({ repository, frontendOrigins: [ORIGIN] });
+    const credentials = { email: "synthetic@example.test", password: PASSWORD };
+    const responses = {
+      me: await request(app).get("/api/auth/me").set("Cookie", SYNTHETIC_COOKIE),
+      dashboard: await request(app).get("/api/dashboard").set("Cookie", SYNTHETIC_COOKIE),
+      login: await request(app).post("/api/auth/login").set("Origin", ORIGIN).send(credentials),
+      register: await request(app).post("/api/auth/register").set("Origin", ORIGIN).send(credentials),
+      logout: await request(app).post("/api/auth/logout").set("Origin", ORIGIN).set("Cookie", SYNTHETIC_COOKIE),
+    };
+    for (const response of Object.values(responses)) {
+      expect(response.status).toBe(503);
+      expect(response.body.error.code).toBe("database_unavailable");
+      expect(Number(response.headers["retry-after"])).toBeGreaterThan(0);
+    }
+    expect(responses.logout.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it.each([
+    ["programming error", () => new TypeError("Cannot read properties of undefined (reading 'id')")],
+    ["missing table (42P01)", () => Object.assign(new Error("relation \"sessions\" does not exist"), { code: "42P01" })],
+    ["query parameters that only mention a timeout", () => new Error("Failed query: select\nparams: timeout exceeded when trying to connect")],
+  ])("keeps a %s as 500 internal_error", async (_label, makeError) => {
+    const repository = new MemoryRepository();
+    repository.findUserBySession = async () => {
+      throw makeError();
+    };
+    const app = createApp({ repository, frontendOrigins: [ORIGIN] });
+    const response = await request(app).get("/api/auth/me").set("Cookie", SYNTHETIC_COOKIE);
+    expect(response.status).toBe(500);
+    expect(response.body.error.code).toBe("internal_error");
+    expect(response.headers["retry-after"]).toBeUndefined();
   });
 });

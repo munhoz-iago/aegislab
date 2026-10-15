@@ -1,5 +1,5 @@
 // Restarts and pauses the local Compose PostgreSQL service, then checks that the
-// running API reports the outage and recovers without its own restart.
+// running API reports the outage (503, including DB-backed auth routes) and recovers without its own restart.
 // Local-only and disruptive: it requires AEGISLAB_DISRUPT_LOCAL_DB=1.
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -79,7 +79,7 @@ function apiLogEvents(sinceIso) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
     if (entry.event === 'http_request') continue;
-    const key = [entry.event, entry.pgCode, entry.errorName].filter(Boolean).join(':');
+    const key = [entry.event, entry.reason, entry.pgCode, entry.errorName].filter(Boolean).join(':');
     counts[key] = (counts[key] ?? 0) + 1;
   }
   return counts;
@@ -140,5 +140,5 @@ const recovered = (phase) => Object.keys(HEALTH_URLS).every((name) => phase.reco
 const ok = report.apiProcessKept && recovered(report.restart) && recovered(report.pause) &&
   report.restart.authSmokeExit === 0 && report.pause.authSmokeExit === 0 &&
   report.pause.healthStatuses.includes(503) && !report.pause.healthStatuses.includes(200) &&
-  typeof report.pause.sessionLookup.status === 'number' && report.pause.sessionLookup.status >= 500;
+  report.pause.sessionLookup.status === 503;
 process.exitCode = ok ? 0 : 1;

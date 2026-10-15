@@ -9,8 +9,12 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_LIFETIME_MS,
 } from "../auth/session.js";
+import { databaseUnavailableReason } from "../db/availability.js";
 import { errorFields, noopLogger, type Logger } from "../observability/log.js";
 import { makeRateLimiter } from "./rate-limit.js";
+
+/** Above the 3 s pool connection timeout, so a retrying client does not stack waiting requests. */
+const DATABASE_RETRY_AFTER_SECONDS = 5;
 
 export interface AppOptions {
   repository: AuthRepository;
@@ -195,6 +199,12 @@ export function createApp({ repository, frontendOrigins, logger = noopLogger, no
     const status = bodyErrorStatus(error);
     if (status === 415) return sendError(res, 415, "unsupported_media_type", "Unsupported request body encoding");
     if (status && status >= 400 && status < 500) return sendError(res, status, "bad_request", "Invalid request body");
+    const unavailable = databaseUnavailableReason(error);
+    if (unavailable) {
+      logger.event("database_unavailable", { level: "error", requestId: res.locals.requestId, reason: unavailable, ...errorFields(error) });
+      res.setHeader("Retry-After", String(DATABASE_RETRY_AFTER_SECONDS));
+      return sendError(res, 503, "database_unavailable", "Database is temporarily unavailable");
+    }
     logger.event("internal_error", { level: "error", requestId: res.locals.requestId, ...errorFields(error) });
     return sendError(res, 500, "internal_error", "Internal server error");
   }) as ErrorRequestHandler);

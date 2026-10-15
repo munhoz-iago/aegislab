@@ -25,6 +25,7 @@ describe('API client', () => {
   it.each([
     [502, null, 'A API não está respondendo. Verifique se o serviço está ativo.'],
     [503, { error: { code: 'request_failed' } }, 'A API não está respondendo. Verifique se o serviço está ativo.'],
+    [503, { error: { code: 'database_unavailable' } }, 'O banco de dados do laboratório está indisponível no momento. Tente novamente em alguns segundos.'],
     [500, { error: { code: 'internal_error' } }, 'O servidor encontrou um erro inesperado. Tente novamente em instantes.'],
     [403, { error: { code: 'origin_forbidden' } }, 'Este endereço não é aceito pela API. Abra o painel em http://127.0.0.1:5173.'],
   ])('provides actionable copy for HTTP %s', async (status, body, expected) => {

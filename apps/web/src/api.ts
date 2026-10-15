@@ -89,6 +89,7 @@ export function getDashboard(): Promise<Dashboard> {
 export function friendlyError(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Ocorreu uma falha inesperada. Tente novamente.';
 
+  if (error.code === 'database_unavailable') return 'O banco de dados do laboratório está indisponível no momento. Tente novamente em alguns segundos.';
   if ([502, 503, 504].includes(error.status)) return 'A API não está respondendo. Verifique se o serviço está ativo.';
   if (error.code === 'internal_error' || error.status === 500) return 'O servidor encontrou um erro inesperado. Tente novamente em instantes.';
   if (error.code === 'rate_limited' && error.retryAfterSeconds) {
