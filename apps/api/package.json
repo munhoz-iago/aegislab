@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
@@ -14,19 +17,19 @@
   },
   "dependencies": {
     "dotenv": "^17.2.2",
-    "drizzle-orm": "^0.44.7",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
     "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
-    "@types/node": "^24.5.2",
+    "@types/node": "catalog:",
     "@types/pg": "^8.15.5",
     "@types/supertest": "^6.0.3",
     "drizzle-kit": "^0.31.4",
     "supertest": "^7.1.4",
-    "tsx": "^4.20.5",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

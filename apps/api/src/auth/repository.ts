@@ -21,4 +21,6 @@ export interface AuthRepository {
   createUser(email: string, passwordHash: string): Promise<StoredUser>;
   createSession(userId: string, tokenHash: string, expiresAt: Date): Promise<void>;
   deleteSession(tokenHash: string): Promise<void>;
+  /** Deletes at most 100 expired rows in one call. */
+  deleteExpiredSessions(now: Date): Promise<number>;
 }

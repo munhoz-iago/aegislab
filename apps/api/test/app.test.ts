@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DuplicateEmailError, type AuthRepository, type PublicUser, type StoredUser } from "../src/auth/repository.js";
 import { hashSessionToken, SESSION_COOKIE_NAME } from "../src/auth/session.js";
 import { createApp } from "../src/http/app.js";
+import { createLogger } from "../src/observability/log.js";
 
 const ORIGIN = "http://127.0.0.1:5173";
 const PASSWORD = "correct horse battery staple";
@@ -42,12 +43,24 @@ class MemoryRepository implements AuthRepository {
   async deleteSession(tokenHash: string): Promise<void> {
     this.sessions.delete(tokenHash);
   }
+
+  async deleteExpiredSessions(now: Date): Promise<number> {
+    let deleted = 0;
+    for (const [tokenHash, session] of this.sessions) {
+      if (deleted === 100) break;
+      if (session.expiresAt <= now) {
+        this.sessions.delete(tokenHash);
+        deleted += 1;
+      }
+    }
+    return deleted;
+  }
 }
 
 describe("AegisLab API", () => {
   it("reports database readiness without claiming a scanner ran", async () => {
     const repository = new MemoryRepository();
-    const app = createApp({ repository, frontendOrigin: ORIGIN });
+    const app = createApp({ repository, frontendOrigins: [ORIGIN, "http://localhost:5173"] });
     expect((await request(app).get("/api/health")).body).toEqual({ status: "ok", database: "connected" });
     repository.databaseAvailable = false;
     const unavailable = await request(app).get("/api/health");
@@ -57,7 +70,7 @@ describe("AegisLab API", () => {
 
   it("requires the configured Origin on state changes", async () => {
     const repository = new MemoryRepository();
-    const app = createApp({ repository, frontendOrigin: ORIGIN });
+    const app = createApp({ repository, frontendOrigins: [ORIGIN, "http://localhost:5173"] });
     const body = { email: "user@example.com", password: PASSWORD };
     const missing = await request(app).post("/api/auth/register").send(body);
     expect(missing.status).toBe(403);
@@ -70,7 +83,7 @@ describe("AegisLab API", () => {
 
   it("stores only a session token hash and protects dashboard access", async () => {
     const repository = new MemoryRepository();
-    const app = createApp({ repository, frontendOrigin: ORIGIN });
+    const app = createApp({ repository, frontendOrigins: [ORIGIN, "http://localhost:5173"] });
     const browser = request.agent(app);
 
     const guest = await browser.get("/api/dashboard");
@@ -110,7 +123,7 @@ describe("AegisLab API", () => {
 
   it("uses generic login errors and rejects duplicate normalized email", async () => {
     const repository = new MemoryRepository();
-    const app = createApp({ repository, frontendOrigin: ORIGIN });
+    const app = createApp({ repository, frontendOrigins: [ORIGIN, "http://localhost:5173"] });
     await request(app).post("/api/auth/register").set("Origin", ORIGIN).send({ email: "User@Example.com", password: PASSWORD });
     const duplicate = await request(app).post("/api/auth/register").set("Origin", ORIGIN).send({ email: "user@example.com", password: PASSWORD });
     expect(duplicate.status).toBe(409);
@@ -129,7 +142,7 @@ describe("AegisLab API", () => {
 
   it("rejects expired sessions, malformed input, and oversized JSON", async () => {
     const repository = new MemoryRepository();
-    const app = createApp({ repository, frontendOrigin: ORIGIN });
+    const app = createApp({ repository, frontendOrigins: [ORIGIN, "http://localhost:5173"] });
     const registered = await request(app).post("/api/auth/register").set("Origin", ORIGIN).send({ email: "user@example.com", password: PASSWORD });
     const cookie = (registered.headers["set-cookie"]?.[0] as string).split(";")[0] as string;
     const token = cookie.split("=")[1] as string;
@@ -148,7 +161,7 @@ describe("AegisLab API", () => {
   });
 
   it("limits registration attempts by socket IP even with forged forwarding headers", async () => {
-    const app = createApp({ repository: new MemoryRepository(), frontendOrigin: ORIGIN });
+    const app = createApp({ repository: new MemoryRepository(), frontendOrigins: [ORIGIN, "http://localhost:5173"] });
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await request(app).post("/api/auth/register").set("Origin", ORIGIN).set("X-Forwarded-For", `192.0.2.${attempt}`).send({ email: "bad", password: "short" });
       expect(response.status).toBe(400);
@@ -157,5 +170,58 @@ describe("AegisLab API", () => {
     expect(limited.status).toBe(429);
     expect(limited.body.error.code).toBe("rate_limited");
     expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
+  });
+
+  it("allows only listed origins and echoes the matched origin on preflight", async () => {
+    const app = createApp({ repository: new MemoryRepository(), frontendOrigins: [ORIGIN, "http://localhost:5173"] });
+    const localhost = await request(app).post("/api/auth/login").set("Origin", "http://localhost:5173").send({ email: "missing@example.test", password: PASSWORD });
+    expect(localhost.status).toBe(401);
+    expect(localhost.headers["access-control-allow-origin"]).toBe("http://localhost:5173");
+    const foreign = await request(app).post("/api/auth/login").set("Origin", "http://127.0.0.1:4100").send({ email: "missing@example.test", password: PASSWORD });
+    expect(foreign.status).toBe(403);
+    const preflight = await request(app).options("/api/auth/login").set("Origin", "http://localhost:5173");
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers["access-control-allow-origin"]).toBe("http://localhost:5173");
+    expect(preflight.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+
+  it("bounds health checks when the database does not answer", async () => {
+    const repository = new MemoryRepository();
+    repository.ping = async () => new Promise<void>(() => {});
+    const app = createApp({ repository, frontendOrigins: [ORIGIN], healthTimeoutMs: 50 });
+    const started = Date.now();
+    const response = await request(app).get("/api/health");
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ status: "degraded", database: "unavailable" });
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  it("returns JSON for unsupported bodies and unmatched API routes", async () => {
+    const app = createApp({ repository: new MemoryRepository(), frontendOrigins: [ORIGIN] });
+    const charset = await request(app).post("/api/auth/logout").set("Origin", ORIGIN).set("Content-Type", "application/json; charset=latin1").send("{}");
+    expect(charset.status).toBe(415);
+    expect(charset.body.error.code).toBe("unsupported_media_type");
+    const encoding = await request(app).post("/api/auth/logout").set("Origin", ORIGIN).set("Content-Type", "application/json").set("Content-Encoding", "x-unknown").send("{}");
+    expect(encoding.status).toBe(415);
+    expect(encoding.body.error.code).toBe("unsupported_media_type");
+    const missing = await request(app).get("/api/nope");
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("not_found");
+    expect(missing.headers["content-type"]).toMatch(/application\/json/);
+  });
+
+  it("logs only closed fields when persistence throws", async () => {
+    const repository = new MemoryRepository();
+    repository.createUser = async () => {
+      throw Object.assign(new Error("params: synthetic@example.test,scrypt$16384$x"), { cause: { code: "23503" } });
+    };
+    const lines: string[] = [];
+    const app = createApp({ repository, frontendOrigins: [ORIGIN], logger: createLogger((line) => lines.push(line)) });
+    const response = await request(app).post("/api/auth/register").set("Origin", ORIGIN).send({ email: "synthetic@example.test", password: PASSWORD });
+    expect(response.status).toBe(500);
+    expect(response.body.error.code).toBe("internal_error");
+    expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(lines.some((line) => JSON.parse(line).event === "internal_error" && JSON.parse(line).pgCode === "23503")).toBe(true);
+    expect(lines.join("")).not.toMatch(/synthetic@example\.test|scrypt\$|aegislab_session=|correct horse battery staple/);
   });
 });

@@ -1,11 +1,16 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, inArray, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { DuplicateEmailError, type AuthRepository, type PublicUser, type StoredUser } from "../auth/repository.js";
 import { sessions, users } from "./schema.js";
+import { errorFields, noopLogger, type Logger } from "../observability/log.js";
 
-export function createPostgresRepository(connectionString: string): { repository: AuthRepository; pool: Pool } {
-  const pool = new Pool({ connectionString, max: 5, connectionTimeoutMillis: 3_000, idleTimeoutMillis: 10_000 });
+export function createPostgresRepository(connectionString: string, logger: Logger = noopLogger): { repository: AuthRepository; pool: Pool } {
+  const pool = new Pool({ connectionString, max: 5, connectionTimeoutMillis: 3_000, idleTimeoutMillis: 10_000, query_timeout: 5_000, statement_timeout: 5_000 });
+  pool.on("error", (error) => {
+    // pg-pool removes broken idle clients. The message may include query parameters.
+    logger.event("pg_idle_client_error", { level: "warn", ...errorFields(error) });
+  });
   const db = drizzle(pool);
 
   const repository: AuthRepository = {
@@ -40,6 +45,19 @@ export function createPostgresRepository(connectionString: string): { repository
     },
     async deleteSession(tokenHash) {
       await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
+    },
+    async deleteExpiredSessions(now) {
+      const due = await db
+        .select({ tokenHash: sessions.tokenHash })
+        .from(sessions)
+        .where(lte(sessions.expiresAt, now))
+        .orderBy(sessions.expiresAt)
+        .limit(100);
+      if (due.length === 0) return 0;
+      const deleted = await db.delete(sessions)
+        .where(inArray(sessions.tokenHash, due.map((row) => row.tokenHash)))
+        .returning({ tokenHash: sessions.tokenHash });
+      return deleted.length;
     },
   };
 
