@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.0.9",
   "engines": {
-    "node": ">=22"
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
     "dev": "pnpm --parallel --filter @aegislab/api --filter @aegislab/web --filter @aegislab/demo-target dev",
@@ -13,6 +13,9 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @aegislab/web test:e2e",
+    "test:live": "pnpm --filter @aegislab/web test:live",
+    "test:api-live": "node scripts/smoke-api.mjs",
+    "test:db-recovery": "node scripts/db-recovery-smoke.mjs",
     "db:generate": "pnpm --filter @aegislab/api db:generate",
     "db:migrate": "pnpm --filter @aegislab/api db:migrate"
   }
