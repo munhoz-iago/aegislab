@@ -25,7 +25,7 @@
     "@types/express": "^5.0.3",
     "@types/node": "catalog:",
     "@types/pg": "^8.15.5",
-    "@types/supertest": "^6.0.3",
+    "@types/supertest": "^7.2.1",
     "drizzle-kit": "^0.31.4",
     "supertest": "^7.1.4",
     "tsx": "catalog:",
