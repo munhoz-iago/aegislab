@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:24.21.0-alpine
+FROM node:26.12.1-alpine
 
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 RUN npm install --global pnpm@11.0.9 --registry="$NPM_CONFIG_REGISTRY"
